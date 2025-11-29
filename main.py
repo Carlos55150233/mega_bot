@@ -204,13 +204,10 @@ async def process_mega_link_chunked(url: str, chat_id: int, message_id: int, con
                 )
                 continue
             
-            # Split chunk into Telegram-sized parts if needed
-            chunk_parts = []
+            # Upload chunk in Telegram-sized parts immediately (save memory)
+            part_idx = 0
             for i in range(0, len(decrypted_chunk), TELEGRAM_MAX_SIZE):
-                chunk_parts.append(decrypted_chunk[i:i+TELEGRAM_MAX_SIZE])
-            
-            # Upload each part
-            for part_idx, part_data in enumerate(chunk_parts):
+                part_data = decrypted_chunk[i:i+TELEGRAM_MAX_SIZE]
                 part_name = f"{file_name}.part{chunk_num * 100 + part_idx + 1:04d}"
                 
                 await context.bot.edit_message_text(
@@ -219,12 +216,33 @@ async def process_mega_link_chunked(url: str, chat_id: int, message_id: int, con
                     text=f"📤 Subiendo parte {chunk_num * 100 + part_idx + 1}... ({len(part_data)/1024/1024:.1f} MB)"
                 )
                 
-                # Upload to Telegram
-                await context.bot.send_document(
-                    chat_id=chat_id,
-                    document=BytesIO(part_data),
-                    filename=part_name
-                )
+                try:
+                    # Upload to Telegram with timeout
+                    await asyncio.wait_for(
+                        context.bot.send_document(
+                            chat_id=chat_id,
+                            document=BytesIO(part_data),
+                            filename=part_name,
+                            read_timeout=120,
+                            write_timeout=120
+                        ),
+                        timeout=180
+                    )
+                    part_idx += 1
+                except asyncio.TimeoutError:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"⚠️ Timeout subiendo parte {part_idx + 1}, reintentando..."
+                    )
+                    # Retry once
+                    await context.bot.send_document(
+                        chat_id=chat_id,
+                        document=BytesIO(part_data),
+                        filename=part_name,
+                        read_timeout=180,
+                        write_timeout=180
+                    )
+                    part_idx += 1
             
             # Chunk processed, memory freed automatically
         
