@@ -1,4 +1,4 @@
-python-telegram-bot
+python-telegram-bot[webhooks]
 mega.py
 gunicorn
 python-dotenv
