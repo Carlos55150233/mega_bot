@@ -24,33 +24,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /start is issued."""
     await update.message.reply_text("Hola! Envíame un enlace de Mega y trataré de descargarlo y enviártelo.")
 
-async def handle_mega_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Downloads file from Mega and sends it to user."""
-    url = update.message.text.strip()
-    
-    if "mega.nz" not in url:
-        await update.message.reply_text("Por favor envíame un enlace válido de Mega.nz.")
-        return
-
-    status_msg = await update.message.reply_text("Iniciando descarga de Mega... ⏳")
-
+async def process_mega_link(url: str, chat_id: int, message_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Background task to download, compress, and send files."""
     try:
         mega = Mega()
         m = mega.login() # Login anonymous
         
         # Download file
-        await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="Descargando archivo... esto puede tomar un momento.")
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text="Descargando archivo... esto puede tomar un momento (o varios minutos si es grande). ⏳")
         
         # Run blocking download in a separate thread
         loop = asyncio.get_running_loop()
         filename = await loop.run_in_executor(None, lambda: m.download_url(url))
         
         if not filename:
-             await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="Error: No se pudo descargar el archivo.")
+             await context.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text="Error: No se pudo descargar el archivo.")
              return
 
         file_size = os.path.getsize(filename)
-        await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=f"Descarga completada ({file_size/1024/1024:.2f} MB). Comprimiendo... 🗜️")
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=f"Descarga completada ({file_size/1024/1024:.2f} MB). Comprimiendo... 🗜️")
 
         # Compress to ZIP
         zip_filename = f"{filename}.zip"
@@ -65,14 +57,14 @@ async def handle_mega_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         os.remove(filename)
         
         zip_size = os.path.getsize(zip_filename)
-        await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=f"Comprimido ({zip_size/1024/1024:.2f} MB). Subiendo a Telegram... 🚀")
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=f"Comprimido ({zip_size/1024/1024:.2f} MB). Subiendo a Telegram... 🚀")
 
         # Split and Send
         CHUNK_SIZE = 49 * 1024 * 1024 # 49 MB
         
         if zip_size <= CHUNK_SIZE:
             with open(zip_filename, 'rb') as f:
-                await update.message.reply_document(document=f, filename=zip_filename)
+                await context.bot.send_document(chat_id=chat_id, document=f, filename=zip_filename)
         else:
             part_num = 1
             with open(zip_filename, 'rb') as f:
@@ -87,22 +79,36 @@ async def handle_mega_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                         chunk_file.write(chunk)
                         
                     with open(part_name, 'rb') as chunk_file:
-                        await update.message.reply_document(document=chunk_file, filename=part_name)
+                        await context.bot.send_document(chat_id=chat_id, document=chunk_file, filename=part_name)
                     
                     os.remove(part_name)
                     part_num += 1
 
-        await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="¡Archivos enviados! ✅ Usa 7-Zip o WinRAR para unirlos.")
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text="¡Archivos enviados! ✅ Usa 7-Zip o WinRAR para unirlos.")
 
     except Exception as e:
         logger.error(f"Error: {e}")
-        await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=f"Ocurrió un error: {str(e)}")
+        await context.bot.send_message(chat_id=chat_id, text=f"Ocurrió un error: {str(e)}")
     finally:
         # Cleanup
         if 'filename' in locals() and filename and os.path.exists(filename):
             os.remove(filename)
         if 'zip_filename' in locals() and zip_filename and os.path.exists(zip_filename):
             os.remove(zip_filename)
+
+async def handle_mega_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the message and spawn a background task."""
+    url = update.message.text.strip()
+    
+    if "mega.nz" not in url:
+        await update.message.reply_text("Por favor envíame un enlace válido de Mega.nz.")
+        return
+
+    # Reply immediately to acknowledge receipt
+    status_msg = await update.message.reply_text("Enlace recibido. Iniciando proceso en segundo plano... 🚀")
+
+    # Spawn background task
+    context.application.create_task(process_mega_link(url, update.effective_chat.id, status_msg.message_id, context))
 
 def main() -> None:
     """Start the bot."""
