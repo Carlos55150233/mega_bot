@@ -1,0 +1,4 @@
+python-telegram-bot
+mega.py
+gunicorn
+python-dotenv
