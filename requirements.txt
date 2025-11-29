@@ -1,4 +1,4 @@
 python-telegram-bot[webhooks]
-mega.py
-gunicorn
+pycryptodomex
+requests
 python-dotenv
