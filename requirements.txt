@@ -2,3 +2,4 @@ python-telegram-bot[webhooks]
 pycryptodomex
 requests
 python-dotenv
+beautifulsoup4
