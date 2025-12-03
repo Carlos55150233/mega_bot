@@ -1,5 +1,7 @@
 import logging
 import os
+import asyncio
+import requests
 from .base import BaseService
 from terabox_downloader import TeraboxDownloader
 
@@ -20,16 +22,38 @@ class TeraboxService(BaseService):
             td = TeraboxDownloader(cookie)
             
             # Get file info
-            # The library might have different methods, adapting to common usage
             loop = asyncio.get_running_loop()
-            file_info = await loop.run_in_executor(None, lambda: td.get_file_info(url))
+            # Note: The library method might differ, assuming get_file_info or similar
+            # If the library is simple, we might need to check its docs or source.
+            # Based on pypi search, it might be 'get_data' or similar.
+            # Let's try to be generic or wrap it safely.
+            
+            # If we look at common terabox-downloader usage:
+            # from terabox_downloader import TeraboxDownloader
+            # td = TeraboxDownloader(cookie)
+            # info = td.get_data(url)
+            
+            file_info = await loop.run_in_executor(None, lambda: td.get_data(url))
             
             if not file_info:
                 return None
 
+            # Map library output to our format
+            # Assuming structure based on typical API response
+            dlink = file_info.get('dlink') or file_info.get('download_link')
+            
+            if not dlink:
+                # Some libraries return a list
+                if isinstance(file_info, list) and len(file_info) > 0:
+                    file_info = file_info[0]
+                    dlink = file_info.get('dlink')
+
+            if not dlink:
+                return None
+
             return {
                 'service': 'terabox',
-                'download_url': file_info.get('dlink'), # Library should provide direct link
+                'download_url': dlink,
                 'size': int(file_info.get('size', 0)),
                 'name': file_info.get('server_filename', 'terabox_file'),
                 'headers': {'User-Agent': 'Mozilla/5.0', 'Cookie': f'ndus={cookie}'}
@@ -40,14 +64,8 @@ class TeraboxService(BaseService):
             return None
 
     async def download_to_file(self, file_info, destination_path, progress_callback=None):
-        # ... (keep existing download logic but ensure headers are passed)
-        return await super().download_to_file(file_info, destination_path, progress_callback) # Use base or re-implement if needed
-
-
-    async def download_to_file(self, file_info, destination_path, progress_callback=None):
         try:
             headers = file_info.get('headers', {})
-            # Terabox dlinks often redirect and need the User-Agent/Cookie
             
             loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(
@@ -74,5 +92,4 @@ class TeraboxService(BaseService):
             return False
 
     async def download_chunk(self, file_info, start, end):
-        # Not used in download_to_file mode, but kept for compatibility
         return None
