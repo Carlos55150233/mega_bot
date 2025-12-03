@@ -4,4 +4,3 @@ requests
 python-dotenv
 beautifulsoup4
 pycryptodomex
-terabox-downloader
