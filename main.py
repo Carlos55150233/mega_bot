@@ -67,18 +67,19 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-async def progress(current, total, message: Message, start_time, status_text, last_update_time):
+async def progress(current, total, message: Message, start_time, status_text, last_update_progress):
     """Progress callback for uploads."""
-    now = time.time()
     
-    # Update only every 7 seconds to avoid FloodWait blocking the upload
-    if now - last_update_time[0] < 7: 
+    percentage = current * 100 / total
+    
+    # Update only every 10% or when complete to avoid FloodWait
+    if percentage - last_update_progress[0] < 10 and percentage < 100:
         return
         
-    last_update_time[0] = now
-        
-    percentage = current * 100 / total
-    speed = current / (now - start_time)
+    last_update_progress[0] = percentage
+    
+    now = time.time()
+    speed = current / (now - start_time) if (now - start_time) > 0 else 0
     eta = (total - current) / speed if speed > 0 else 0
     
     try:
@@ -90,11 +91,9 @@ async def progress(current, total, message: Message, start_time, status_text, la
             f"⏳ **ETA:** `{int(eta)}s`"
         )
     except FloodWait as e:
-        # If we hit flood wait during progress, just skip this update
-        # We don't want to sleep here because it would block the upload
         pass 
     except Exception:
-        pass # Ignore errors to keep uploading
+        pass
 
 @app.on_message(filters.command("start"))
 async def start(client, message):
@@ -107,14 +106,26 @@ async def start(client, message):
         "Los descargaré en el servidor y te los enviaré completos."
     )
 
-@app.on_message(filters.text & ~filters.command("start"))
-async def handle_url(client, message):
-    url = message.text.strip()
-    
-    if not url.startswith(('http://', 'https://')):
-        return
+# Queue system
+request_queue = asyncio.Queue()
 
-    status_msg = await message.reply_text("🔄 **Analizando enlace...**")
+async def worker():
+    """Background worker to process queue."""
+    print("👷 Worker iniciado y esperando tareas...")
+    while True:
+        # Get task from queue
+        client, message, url = await request_queue.get()
+        
+        try:
+            await process_url(client, message, url)
+        except Exception as e:
+            logger.error(f"Error in worker: {e}")
+        finally:
+            request_queue.task_done()
+
+async def process_url(client, message, url):
+    """Process a single URL."""
+    status_msg = await message.reply_text("🔄 **En cola... Iniciando...**")
     
     try:
         # Detect service
@@ -143,10 +154,10 @@ async def handle_url(client, message):
         os.makedirs("downloads", exist_ok=True)
         
         start_time = time.time()
-        last_update_time = [0] # Mutable list to pass by reference
+        last_update_progress = [0] # Mutable list for percentage
 
         async def download_progress(current, total):
-            await progress(current, total, status_msg, start_time, "⬇️ **Descargando...**", last_update_time)
+            await progress(current, total, status_msg, start_time, "⬇️ **Descargando...**", last_update_progress)
 
         success = await service.download_to_file(file_info, destination, download_progress)
         
@@ -160,10 +171,10 @@ async def handle_url(client, message):
         
         # Upload to Telegram
         start_time = time.time()
-        last_update_time = [0] # Reset for upload
+        last_update_progress = [0] # Reset for upload
         
         async def upload_progress(current, total):
-             await progress(current, total, status_msg, start_time, "📤 **Subiendo...**", last_update_time)
+             await progress(current, total, status_msg, start_time, "📤 **Subiendo...**", last_update_progress)
 
         await client.send_document(
             chat_id=message.chat.id,
@@ -185,6 +196,21 @@ async def handle_url(client, message):
         if 'destination' in locals() and os.path.exists(destination):
             os.remove(destination)
 
+@app.on_message(filters.text & ~filters.command("start"))
+async def handle_message(client, message):
+    url = message.text.strip()
+    
+    if not url.startswith(('http://', 'https://')):
+        return
+
+    # Add to queue
+    position = request_queue.qsize() + 1
+    await message.reply_text(f"✅ **Añadido a la cola.**\n🔢 Posición: {position}")
+    await request_queue.put((client, message, url))
+
 if __name__ == "__main__":
     print("🤖 Bot iniciado (Pyrogram)...")
+    # Start worker
+    loop = asyncio.get_event_loop()
+    loop.create_task(worker())
     app.run()
