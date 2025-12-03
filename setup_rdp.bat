@@ -52,7 +52,12 @@ echo [5/6] Configuring Environment...
 if not exist ".env" (
     echo Creating .env file...
     set /p TOKEN="Enter your Telegram Bot Token: "
+    set /p API_ID="Enter your Telegram API ID: "
+    set /p API_HASH="Enter your Telegram API HASH: "
+    
     echo TELEGRAM_TOKEN=%TOKEN%> .env
+    echo API_ID=%API_ID%>> .env
+    echo API_HASH=%API_HASH%>> .env
     echo PORT=8080>> .env
     echo .env created!
 ) else (

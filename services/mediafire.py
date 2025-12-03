@@ -73,6 +73,32 @@ class MediafireService(BaseService):
             logger.error(f"Error getting Mediafire info: {e}")
             return None
 
+    async def download_to_file(self, file_info, destination_path, progress_callback=None):
+        try:
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: requests.get(file_info['download_url'], stream=True, timeout=60)
+            )
+            
+            if response.status_code != 200:
+                return False
+                
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
+            
+            with open(destination_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=1024*1024):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_callback:
+                            await progress_callback(downloaded, total_size)
+            return True
+        except Exception as e:
+            logger.error(f"Error downloading Mediafire file: {e}")
+            return False
+
     async def download_chunk(self, file_info, start, end):
         try:
             headers = {'Range': f'bytes={start}-{end}'}

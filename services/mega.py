@@ -73,6 +73,29 @@ class MegaService(BaseService):
             logger.error(f"Error getting Mega info: {e}")
             return None
 
+    async def download_to_file(self, file_info, destination_path, progress_callback=None):
+        try:
+            file_size = file_info['size']
+            chunk_size = 4096 * 1024 # 4MB chunks for decryption
+            
+            with open(destination_path, 'wb') as f:
+                for start in range(0, file_size, chunk_size):
+                    end = min(start + chunk_size - 1, file_size - 1)
+                    
+                    chunk_data = await self.download_chunk(file_info, start, end)
+                    if not chunk_data:
+                        return False
+                        
+                    f.write(chunk_data)
+                    
+                    if progress_callback:
+                        await progress_callback(end + 1, file_size)
+                        
+            return True
+        except Exception as e:
+            logger.error(f"Error downloading Mega file: {e}")
+            return False
+
     async def download_chunk(self, file_info, start, end):
         try:
             headers = {'Range': f'bytes={start}-{end}'}
