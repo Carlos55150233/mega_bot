@@ -54,10 +54,12 @@ if not exist ".env" (
     set /p TOKEN="Enter your Telegram Bot Token: "
     set /p API_ID="Enter your Telegram API ID: "
     set /p API_HASH="Enter your Telegram API HASH: "
+    set /p TERABOX="Enter your Terabox NDUS Cookie (Optional): "
     
     echo TELEGRAM_TOKEN=%TOKEN%> .env
     echo API_ID=%API_ID%>> .env
     echo API_HASH=%API_HASH%>> .env
+    echo TERABOX_COOKIE=%TERABOX%>> .env
     echo PORT=8080>> .env
     echo .env created!
 ) else (
